@@ -9,7 +9,7 @@
 
 #include "TemplightDebugger.h"
 
-#include "clang/AST/DataRecursiveASTVisitor.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclLookups.h"
 #include "clang/AST/DeclTemplate.h"
@@ -34,16 +34,16 @@ namespace clang {
 
 
 namespace {
-  
 
-const char* const InstantiationKindStrings[] = { 
+
+const char* const InstantiationKindStrings[] = {
   "template instantiation",
   "default template-argument instantiation",
   "default function-argument instantiation",
   "explicit template-argument substitution",
-  "deduced template-argument substitution", 
+  "deduced template-argument substitution",
   "prior template-argument substitution",
-  "default template-argument checking", 
+  "default template-argument checking",
   "exception specification instantiation",
   "memoization" };
 
@@ -55,22 +55,22 @@ struct TemplateDebuggerEntry {
   int Line;
   int Column;
   std::size_t MemoryUsage;
-  
-  TemplateDebuggerEntry() : IsTemplateBegin(true), 
-    Inst(), Name(), FileName(), Line(0), Column(0), 
+
+  TemplateDebuggerEntry() : IsTemplateBegin(true),
+    Inst(), Name(), FileName(), Line(0), Column(0),
     MemoryUsage(0) { };
-  
+
   TemplateDebuggerEntry(bool aIsBegin, std::size_t aMemUsage,
-                        const Sema &TheSema, 
+                        const Sema &TheSema,
                         const ActiveTemplateInstantiation& aInst) :
-                        IsTemplateBegin(aIsBegin), Inst(aInst), Name(), 
-                        FileName(), Line(0), Column(0), MemoryUsage(aMemUsage) { 
+                        IsTemplateBegin(aIsBegin), Inst(aInst), Name(),
+                        FileName(), Line(0), Column(0), MemoryUsage(aMemUsage) {
     NamedDecl *NamedTemplate = dyn_cast_or_null<NamedDecl>(Inst.Entity);
     if (NamedTemplate) {
       llvm::raw_string_ostream OS(Name);
       NamedTemplate->getNameForDiagnostic(OS, TheSema.getLangOpts(), true);
     }
-    
+
     PresumedLoc Loc = TheSema.getSourceManager().getPresumedLoc(Inst.PointOfInstantiation);
     if(!Loc.isInvalid()) {
       FileName = Loc.getFilename();
@@ -103,8 +103,8 @@ void fillWithTemplateArgumentPrints(const TemplateArgument *Args,
   for (unsigned Arg = 0; Arg < NumArgs; ++Arg) {
     // Print the argument into a string.
     if (Args[Arg].getKind() == TemplateArgument::Pack) {
-      fillWithTemplateArgumentPrints(Args[Arg].pack_begin(), 
-                                     Args[Arg].pack_size(), 
+      fillWithTemplateArgumentPrints(Args[Arg].pack_begin(),
+                                     Args[Arg].pack_size(),
                                      Policy, It);
     } else {
       std::string Buf;
@@ -117,38 +117,38 @@ void fillWithTemplateArgumentPrints(const TemplateArgument *Args,
 
 
 
-class TemplateArgRecorder : public DataRecursiveASTVisitor<TemplateArgRecorder> {
+class TemplateArgRecorder : public RecursiveASTVisitor<TemplateArgRecorder> {
 public:
-  typedef DataRecursiveASTVisitor<TemplateArgRecorder> Base;
-  
+  typedef RecursiveASTVisitor<TemplateArgRecorder> Base;
+
   const Sema &TheSema;
-  
+
   bool shouldVisitTemplateInstantiations() const { return false; }
-  
+
   struct PrintableQueryResult {
     std::string Name;
     std::string FileName;
     int Line;
     int Column;
     std::string SrcPointer;
-    
+
     PrintableQueryResult() : Name(""), FileName("<no-file>"), Line(0), Column(0), SrcPointer("") { }
-    
+
     void nullLocation(const std::string& NullName = "<no-file>") {
       FileName = NullName;
       Line = 0;
       Column = 0;
       SrcPointer = "";
     }
-    
+
     void fromLocation(const Sema &TheSema, SourceLocation SLoc, const std::string& NullName = "") {
       PresumedLoc PLoc = TheSema.getSourceManager().getPresumedLoc(SLoc);
-      
+
       if(!PLoc.isInvalid()) {
         FileName = PLoc.getFilename();
         Line = PLoc.getLine();
         Column = PLoc.getColumn();
-        
+
         FileID fid = TheSema.getSourceManager().getFileID(SLoc);
         SrcPointer = Lexer::getSourceText(
           CharSourceRange::getTokenRange(
@@ -158,7 +158,7 @@ public:
         SrcPointer.push_back('\n');
         SrcPointer.append(PLoc.getColumn()-1, ' ');
         SrcPointer.push_back('^');
-        
+
       } else {
         FileName = NullName;
         Line = 0;
@@ -166,26 +166,26 @@ public:
         SrcPointer = "";
       }
     }
-    
+
   };
-  
-  
+
+
   llvm::Regex QueryReg;
-  
+
   enum LookupKind {
     LookForDecl = 1,
     LookForType = 2,
     LookForValue = 4
   };
-  
+
   int QueryKind;
   std::vector< PrintableQueryResult > QueryResults;
   // MAYBE change (or add) with Decl* or QualType, etc..
-  
-  TemplateArgRecorder(const Sema &aSema, const std::string& aReg, int aKind = LookForDecl) : 
+
+  TemplateArgRecorder(const Sema &aSema, const std::string& aReg, int aKind = LookForDecl) :
     TheSema(aSema), QueryReg(aReg), QueryKind(aKind) { }
-  
-  
+
+
   void RegisterQualTypeQueryResult(PrintableQueryResult& cur_result, QualType q_type) {
     if( QueryKind & LookForType )
       q_type = q_type.getCanonicalType();
@@ -200,13 +200,13 @@ public:
       cur_result.fromLocation(TheSema, sl, "<unknown-location>");
     }
   };
-  
+
   void LookupInParamArgLists(const TemplateParameterList *Params,
                              const TemplateArgument *Args, unsigned NumArgs) {
     for (unsigned I = 0, N = Params->size(); I != N; ++I) {
       if (I >= NumArgs)
         break;
-      
+
       std::string param_name;
       if (const IdentifierInfo *Id = Params->getParam(I)->getIdentifier()) {
         param_name = Id->getName();
@@ -215,17 +215,17 @@ public:
         OS_param << '$' << I;
         OS_param.str();
       }
-      
+
       if(QueryReg.match(param_name)) {
-        
+
         PrintableQueryResult cur_result;
-        
+
         if( QueryKind & LookForDecl ) {
           cur_result.Name = Params->getParam(I)->getName();
           cur_result.fromLocation(TheSema, Params->getParam(I)->getLocation(), "<unknown-location>");
-        } 
-        
-        if( QueryKind != LookForDecl ) { // not (only) look-for-decl 
+        }
+
+        if( QueryKind != LookForDecl ) { // not (only) look-for-decl
           switch (Args[I].getKind()) {
             case TemplateArgument::Null: {
               // not much better to do.
@@ -237,13 +237,13 @@ public:
               OS_arg.str(); // flush to string.
               break;
             }
-            
+
             case TemplateArgument::Integral: {
               if( QueryKind & LookForValue ) {
                 if( !cur_result.Name.empty() )
                   cur_result.Name += " with value ";
                 cur_result.Name += Args[I].getAsIntegral().toString(10);
-              } 
+              }
               if( QueryKind & LookForType ) {
                 if( !cur_result.Name.empty() )
                   cur_result.Name += " of type ";
@@ -251,7 +251,7 @@ public:
               }
               break;
             }
-            
+
             case TemplateArgument::NullPtr: {
               if( QueryKind & LookForValue ) {
                 if( !cur_result.Name.empty() )
@@ -265,7 +265,7 @@ public:
               }
               break;
             }
-            
+
             case TemplateArgument::Declaration: {
               ValueDecl* vdecl = Args[I].getAsDecl();
               if( QueryKind & LookForValue ) {
@@ -296,14 +296,14 @@ public:
               }
               break;
             }
-            
+
             case TemplateArgument::Type: {
               if( !cur_result.Name.empty() )
                 cur_result.Name += " standing for ";
               RegisterQualTypeQueryResult(cur_result, Args[I].getAsType());
               break;
             }
-            
+
             case TemplateArgument::Template:
             case TemplateArgument::TemplateExpansion: {
               if( !cur_result.Name.empty() )
@@ -320,7 +320,7 @@ public:
                 cur_result.fromLocation(TheSema, sl, "<unknown-location>");
               break;
             }
-            
+
             case TemplateArgument::Expression: {
               if( QueryKind & LookForValue ) {
                 // Evaluate the expression to get the value printed.
@@ -347,7 +347,7 @@ public:
               }
               break;
             }
-            
+
             case TemplateArgument::Pack: {
               // not much better to do.
               if( !cur_result.Name.empty() )
@@ -357,23 +357,23 @@ public:
               OS_arg.str(); // flush to string.
               break;
             }
-            
+
           }
         }
-        
+
         QueryResults.push_back(cur_result);
         return;
       }
     }
   }
-  
+
   void LookupInDeclContext(DeclContext* decl, bool shouldGoUp = false) {
     DeclContext* cur_decl = decl;
     while(cur_decl) {
-      for(DeclContext::all_lookups_iterator it = cur_decl->lookups_begin(), 
+      for(DeclContext::all_lookups_iterator it = cur_decl->lookups_begin(),
           it_end = cur_decl->lookups_end(); it != it_end; ++it) {
         if(QueryReg.match(it.getLookupName().getAsString())) {
-          for(DeclContext::lookup_result::iterator ri = (*it).begin(), 
+          for(DeclContext::lookup_result::iterator ri = (*it).begin(),
               ri_end = (*it).end(); ri != ri_end; ++ri) {
             NamedDecl* ndecl = *ri;
             if(!ndecl)
@@ -385,7 +385,7 @@ public:
               OS_arg.str(); // flush to string.
               cur_result.fromLocation(TheSema, ndecl->getLocation(), "<unknown-location>");
             }
-            
+
             if( QueryKind != LookForDecl ) { // if not (only) look-for-decl
               if(TypeDecl* tdecl = dyn_cast<TypeDecl>(ndecl)) {
                 if(TypedefNameDecl* utp = dyn_cast<TypedefNameDecl>(tdecl)) {
@@ -419,7 +419,7 @@ public:
                     if( cur_result.Line < 1 )
                       cur_result.fromLocation(TheSema, vdecl->getLocation(), "<unknown-location>");
                   }
-                } 
+                }
                 if( QueryKind & LookForType ) {
                   if( !cur_result.Name.empty() )
                     cur_result.Name += " of type ";
@@ -438,42 +438,42 @@ public:
         return;
     }
   }
-  
-  
+
+
   bool TraverseActiveTempInstantiation(const ActiveTemplateInstantiation& Inst) {
     TemplateDecl *TemplatePtr = dyn_cast_or_null<TemplateDecl>(Inst.Entity);
     if( TemplatePtr && TemplatePtr->getTemplateParameters() &&
-        ( TemplatePtr->getTemplateParameters()->size() != 0 ) && 
+        ( TemplatePtr->getTemplateParameters()->size() != 0 ) &&
         ( Inst.NumTemplateArgs != 0 ) ) {
-      LookupInParamArgLists(TemplatePtr->getTemplateParameters(), 
+      LookupInParamArgLists(TemplatePtr->getTemplateParameters(),
                             Inst.TemplateArgs, Inst.NumTemplateArgs);
       if( QueryResults.size() )
         return true;
     }
-    
+
     return TraverseDecl(Inst.Entity);
   }
-  
-  
+
+
   bool VisitFunctionDecl(FunctionDecl* decl) {
-    
+
     LookupInDeclContext(decl);
     if( QueryResults.size() )
       return true;
-    
+
     if( decl->isFunctionTemplateSpecialization() ) {
       FunctionTemplateSpecializationInfo* SpecInfo = decl->getTemplateSpecializationInfo();
       FunctionTemplateDecl* TempDecl = SpecInfo->getTemplate();
       if( TempDecl && TempDecl->getTemplateParameters() &&
-          ( TempDecl->getTemplateParameters()->size() != 0 ) && 
+          ( TempDecl->getTemplateParameters()->size() != 0 ) &&
           ( SpecInfo->TemplateArguments->size() != 0 ) ) {
-        LookupInParamArgLists(TempDecl->getTemplateParameters(), 
+        LookupInParamArgLists(TempDecl->getTemplateParameters(),
                               SpecInfo->TemplateArguments->data(), SpecInfo->TemplateArguments->size());
         if( QueryResults.size() )
           return true;
       }
     }
-    
+
     DeclContext* parent = decl->getParent();
     if( TagDecl* t_decl = dyn_cast_or_null<TagDecl>(parent) )
       return getDerived().VisitTagDecl(t_decl);
@@ -482,29 +482,29 @@ public:
       if( QueryResults.size() )
         return true;
     }
-    
+
     return true;
   }
-  
+
   bool VisitTagDecl(TagDecl* decl) {
-    
+
     LookupInDeclContext(decl);
     if( QueryResults.size() )
       return true;
-    
+
     if( ClassTemplateSpecializationDecl* spec_decl = dyn_cast<ClassTemplateSpecializationDecl>(decl) ) {
       ClassTemplateDecl* TempDecl = spec_decl->getSpecializedTemplate();
       if( TempDecl && TempDecl->getTemplateParameters() &&
-          ( TempDecl->getTemplateParameters()->size() != 0 ) && 
+          ( TempDecl->getTemplateParameters()->size() != 0 ) &&
           ( spec_decl->getTemplateArgs().size() != 0 ) ) {
-        LookupInParamArgLists(TempDecl->getTemplateParameters(), 
-                              spec_decl->getTemplateArgs().data(), 
+        LookupInParamArgLists(TempDecl->getTemplateParameters(),
+                              spec_decl->getTemplateArgs().data(),
                               spec_decl->getTemplateArgs().size());
         if( QueryResults.size() )
           return true;
       }
     }
-    
+
     // TODO Shouldn't this be in the LookupInDeclContext function (or maybe even VisitDeclContex?)
     DeclContext* parent = decl->getParent();
     if( TagDecl* t_decl = dyn_cast_or_null<TagDecl>(parent) )
@@ -514,11 +514,11 @@ public:
       if( QueryResults.size() )
         return true;
     }
-    
+
     return true;
   }
-  
-  
+
+
 };
 
 
@@ -529,12 +529,12 @@ public:
 
 class TemplightDebugger::InteractiveAgent {
 public:
-  
-  void printEntryImpl(const TemplateDebuggerEntry& Entry) { 
-    llvm::outs() 
+
+  void printEntryImpl(const TemplateDebuggerEntry& Entry) {
+    llvm::outs()
       << ( (Entry.IsTemplateBegin) ? "Entering " : "Leaving  " )
       << InstantiationKindStrings[Entry.Inst.Kind]  << " of " << Entry.Name << '\n'
-      << "  at " << Entry.FileName << '|' << Entry.Line << '|' << Entry.Column 
+      << "  at " << Entry.FileName << '|' << Entry.Line << '|' << Entry.Column
       << " (Memory usage: " << Entry.MemoryUsage << ")\n";
     if ( verboseMode ) {
       std::string SrcPointer = getSrcPointer(TheSema, Entry.Inst.PointOfInstantiation);
@@ -542,7 +542,7 @@ public:
         llvm::outs() << SrcPointer << '\n';
     }
   };
-  
+
   void skipEntry(const TemplateDebuggerEntry &Entry) {
     if ( CurrentSkippedEntry.IsTemplateBegin )
       return; // Already skipping entries.
@@ -550,7 +550,7 @@ public:
       return; // Cannot skip entry that has ended already.
     CurrentSkippedEntry = Entry;
   };
-  
+
   struct breakpointMatchesStr {
     llvm::StringRef str;
     breakpointMatchesStr(const std::string& aStr) : str(&aStr[0], aStr.size()) { };
@@ -558,7 +558,7 @@ public:
       return aReg.second.match(str);
     };
   };
-  
+
   bool shouldIgnoreEntry(const TemplateDebuggerEntry &Entry) {
     // Check if it's been commanded to ignore things:
     if ( ignoreAll )
@@ -579,7 +579,7 @@ public:
       else
         return true;
     }
-    
+
     // Check the black-lists:
     // (1) Is currently ignoring entries?
     if ( CurrentSkippedEntry.IsTemplateBegin ) {
@@ -617,7 +617,7 @@ public:
         }
       }
     }
-    
+
     // Avoid some duplication of memoization entries:
     if ( Entry.Inst.Kind == ActiveTemplateInstantiation::Memoization ) {
       if ( !LastBeginEntry.IsTemplateBegin
@@ -628,7 +628,7 @@ public:
     }
     return false;
   };
-  
+
   static void getLineFromStdIn(std::string& s) {
     char c = 0;
     s = "";
@@ -648,12 +648,12 @@ public:
       c = char(i);
     };
   };
-  
+
   static void flushStdIn() {
     std::string s;
     getLineFromStdIn(s);
   };
-  
+
   static void getTokenizeCommand(const std::string& s, std::string& com, std::string& arg) {
     com = "";
     unsigned i = 0;
@@ -670,7 +670,7 @@ public:
       --e;
     arg = s.substr(i, e - i);
   };
-  
+
   void processInputs() {
     std::string user_in;
     while(true) {
@@ -678,12 +678,12 @@ public:
       getLineFromStdIn(user_in);
       if ( user_in == "" )
         user_in = LastUserCommand;
-      
+
       LastUserCommand = user_in;
-      
+
       std::string user_command, com_arg;
       getTokenizeCommand(user_in, user_command, com_arg);
-      
+
       if ( ( user_command == "i" ) ||
            ( user_command == "info" ) ) {
         if ( ( com_arg == "f" ) ||
@@ -696,7 +696,7 @@ public:
                   ( com_arg == "break" ) ) {
           for(unsigned i = 0; i < Breakpoints.size(); ++i)
             if ( !Breakpoints[i].second.match("-") )
-              llvm::outs() << "Breakpoint " << i 
+              llvm::outs() << "Breakpoint " << i
                            << " for " << Breakpoints[i].first << '\n';
           continue;
         }
@@ -708,9 +708,9 @@ public:
           llvm::outs() << "Invalid input!\n";
           continue;
         }
-        
+
       }
-      
+
       if ( user_command == "setmode" ) {
         if ( com_arg == "verbose" ) {
           verboseMode = true;
@@ -725,7 +725,7 @@ public:
           continue;
         }
       }
-      
+
       if ( ( user_command == "r" ) ||
            ( user_command == "c" ) ||
            ( user_command == "run" ) ||
@@ -760,7 +760,7 @@ public:
       }
       else if ( ( user_command == "l" ) ||
                 ( user_command == "lookup" ) ) {
-        TemplateArgRecorder rec(TheSema, "^" + llvm::Regex::escape(com_arg) + "$", 
+        TemplateArgRecorder rec(TheSema, "^" + llvm::Regex::escape(com_arg) + "$",
                                 TemplateArgRecorder::LookForDecl);
         if( EntriesStack.empty() )
           rec.LookupInDeclContext(TheSema.getCurLexicalContext(), true);
@@ -768,7 +768,7 @@ public:
           rec.TraverseActiveTempInstantiation(EntriesStack.back().Inst);
         for(std::vector<TemplateArgRecorder::PrintableQueryResult>::const_iterator it = rec.QueryResults.begin();
             it != rec.QueryResults.end(); ++it) {
-          llvm::outs() 
+          llvm::outs()
             << "Found " << it->Name << '\n'
             << "  at " << it->FileName << '|' << it->Line << '|' << it->Column << '\n';
           if( verboseMode && !it->SrcPointer.empty() )
@@ -785,7 +785,7 @@ public:
           rec.TraverseActiveTempInstantiation(EntriesStack.back().Inst);
         for(std::vector<TemplateArgRecorder::PrintableQueryResult>::const_iterator it = rec.QueryResults.begin();
             it != rec.QueryResults.end(); ++it) {
-          llvm::outs() 
+          llvm::outs()
             << "Found " << it->Name << '\n'
             << "  at " << it->FileName << '|' << it->Line << '|' << it->Column << '\n';
           if( verboseMode && !it->SrcPointer.empty() )
@@ -803,7 +803,7 @@ public:
           rec.TraverseActiveTempInstantiation(EntriesStack.back().Inst);
         for(std::vector<TemplateArgRecorder::PrintableQueryResult>::const_iterator it = rec.QueryResults.begin();
             it != rec.QueryResults.end(); ++it) {
-          llvm::outs() 
+          llvm::outs()
             << "Found " << it->Name << '\n'
             << "  at " << it->FileName << '|' << it->Line << '|' << it->Column << '\n';
           if( verboseMode && !it->SrcPointer.empty() )
@@ -820,7 +820,7 @@ public:
           rec.TraverseActiveTempInstantiation(EntriesStack.back().Inst);
         for(std::vector<TemplateArgRecorder::PrintableQueryResult>::const_iterator it = rec.QueryResults.begin();
             it != rec.QueryResults.end(); ++it) {
-          llvm::outs() 
+          llvm::outs()
             << "Found " << it->Name << '\n'
             << "  at " << it->FileName << '|' << it->Line << '|' << it->Column << '\n';
           if( verboseMode && !it->SrcPointer.empty() )
@@ -830,7 +830,7 @@ public:
       }
       else if ( ( user_command == "e" ) ||
                 ( user_command == "eval" ) ) {
-        TemplateArgRecorder rec(TheSema, "^" + llvm::Regex::escape(com_arg) + "$", 
+        TemplateArgRecorder rec(TheSema, "^" + llvm::Regex::escape(com_arg) + "$",
                                 TemplateArgRecorder::LookForValue);
         if( EntriesStack.empty() )
           rec.LookupInDeclContext(TheSema.getCurLexicalContext(), true);
@@ -857,9 +857,9 @@ public:
       }
       else if ( ( user_command == "w" ) ||
                 ( user_command == "whois" ) ) {
-        TemplateArgRecorder rec(TheSema, "^" + llvm::Regex::escape(com_arg) + "$", 
-                                TemplateArgRecorder::LookForDecl | 
-                                TemplateArgRecorder::LookForType | 
+        TemplateArgRecorder rec(TheSema, "^" + llvm::Regex::escape(com_arg) + "$",
+                                TemplateArgRecorder::LookForDecl |
+                                TemplateArgRecorder::LookForType |
                                 TemplateArgRecorder::LookForValue);
         if( EntriesStack.empty() )
           rec.LookupInDeclContext(TheSema.getCurLexicalContext(), true);
@@ -867,7 +867,7 @@ public:
           rec.TraverseActiveTempInstantiation(EntriesStack.back().Inst);
         for(std::vector<TemplateArgRecorder::PrintableQueryResult>::const_iterator it = rec.QueryResults.begin();
             it != rec.QueryResults.end(); ++it) {
-          llvm::outs() 
+          llvm::outs()
             << "Found " << it->Name << '\n'
             << "  at " << it->FileName << '|' << it->Line << '|' << it->Column << '\n';
           if( verboseMode && !it->SrcPointer.empty() )
@@ -878,8 +878,8 @@ public:
       else if ( ( user_command == "rw" ) ||
                 ( user_command == "rwhois" ) ) {
         TemplateArgRecorder rec(TheSema, com_arg,
-                                TemplateArgRecorder::LookForDecl | 
-                                TemplateArgRecorder::LookForType | 
+                                TemplateArgRecorder::LookForDecl |
+                                TemplateArgRecorder::LookForType |
                                 TemplateArgRecorder::LookForValue);
         if( EntriesStack.empty() )
           rec.LookupInDeclContext(TheSema.getCurLexicalContext(), true);
@@ -887,7 +887,7 @@ public:
           rec.TraverseActiveTempInstantiation(EntriesStack.back().Inst);
         for(std::vector<TemplateArgRecorder::PrintableQueryResult>::const_iterator it = rec.QueryResults.begin();
             it != rec.QueryResults.end(); ++it) {
-          llvm::outs() 
+          llvm::outs()
             << "Found " << it->Name << '\n'
             << "  at " << it->FileName << '|' << it->Line << '|' << it->Column << '\n';
           if( verboseMode && !it->SrcPointer.empty() )
@@ -902,29 +902,29 @@ public:
         if ( it == Breakpoints.end() ) {
           it = std::find_if(Breakpoints.begin(), Breakpoints.end(), breakpointMatchesStr("-"));
           if ( it == Breakpoints.end() )
-            it = Breakpoints.insert(Breakpoints.end(), 
-                                    std::pair<std::string,llvm::Regex>(llvm::Regex::escape(com_arg), 
+            it = Breakpoints.insert(Breakpoints.end(),
+                                    std::pair<std::string,llvm::Regex>(llvm::Regex::escape(com_arg),
                                                                        llvm::Regex(llvm::Regex::escape(com_arg))));
           else
-            *it = std::pair<std::string,llvm::Regex>(llvm::Regex::escape(com_arg), 
+            *it = std::pair<std::string,llvm::Regex>(llvm::Regex::escape(com_arg),
                                                      llvm::Regex(llvm::Regex::escape(com_arg)));
         }
-        llvm::outs() << "Breakpoint " << (it - Breakpoints.begin()) 
+        llvm::outs() << "Breakpoint " << (it - Breakpoints.begin())
                      << " for " << com_arg << '\n';
         continue;
       }
       else if ( ( user_command == "rb" ) ||
                 ( user_command == "rbreak" ) ) {
-        std::vector< std::pair<std::string,llvm::Regex> >::iterator it = 
+        std::vector< std::pair<std::string,llvm::Regex> >::iterator it =
           std::find_if(Breakpoints.begin(), Breakpoints.end(), breakpointMatchesStr("-"));
         if ( it == Breakpoints.end() )
-          it = Breakpoints.insert(Breakpoints.end(), 
-                                  std::pair<std::string,llvm::Regex>(com_arg, 
+          it = Breakpoints.insert(Breakpoints.end(),
+                                  std::pair<std::string,llvm::Regex>(com_arg,
                                                                      llvm::Regex(com_arg)));
         else
-          *it = std::pair<std::string,llvm::Regex>(com_arg, 
+          *it = std::pair<std::string,llvm::Regex>(com_arg,
                                                    llvm::Regex(com_arg));
-        llvm::outs() << "Breakpoint " << (it - Breakpoints.begin()) 
+        llvm::outs() << "Breakpoint " << (it - Breakpoints.begin())
                      << " for " << com_arg << '\n';
         continue;
       }
@@ -935,7 +935,7 @@ public:
           llvm::outs() << "Invalid input!\n";
           continue;
         }
-        llvm::outs() << "Deleted breakpoint " << ind 
+        llvm::outs() << "Deleted breakpoint " << ind
                      << " for " << Breakpoints[ind].first << '\n';
         Breakpoints[ind] = std::pair<std::string,llvm::Regex>("-", llvm::Regex("^-$"));
         continue;
@@ -946,75 +946,75 @@ public:
         for(std::vector<TemplateDebuggerEntry>::reverse_iterator it = EntriesStack.rbegin();
             it != EntriesStack.rend(); ++it) {
           llvm::outs()
-            << InstantiationKindStrings[it->Inst.Kind] << " of " << it->Name 
-            << " at " << it->FileName << '|' 
+            << InstantiationKindStrings[it->Inst.Kind] << " of " << it->Name
+            << " at " << it->FileName << '|'
             << it->Line << '|' << it->Column << '\n';
         }
         continue;
       }
       else {
         llvm::outs() << "Invalid input!\n";
-        continue; 
+        continue;
       }
-      
+
     };
   };
-  
+
   void printRawEntry(const TemplateDebuggerEntry &Entry) {
     if ( shouldIgnoreEntry(Entry) )
       return;
-    
+
     if ( Entry.IsTemplateBegin ) {
       EntriesStack.push_back(Entry);
       LastBeginEntry = Entry;
     };
-    
+
     printEntryImpl(Entry);
-    
-    if ( !Entry.IsTemplateBegin && 
+
+    if ( !Entry.IsTemplateBegin &&
          ( Entry.Inst.Kind == ActiveTemplateInstantiation::Memoization ) )
       LastBeginEntry.IsTemplateBegin = false;
-    
-    if ( !Entry.IsTemplateBegin && 
+
+    if ( !Entry.IsTemplateBegin &&
          ( EntriesStack.size() > 0 ) &&
          ( Entry.Inst.Kind == EntriesStack.back().Inst.Kind ) &&
          ( Entry.Inst.Entity == EntriesStack.back().Inst.Entity ) ) {
       EntriesStack.pop_back();
     };
-    
+
     processInputs();
   };
-  
+
   void startTrace() {
     llvm::outs() << "Welcome to the Templight debugger!\n"
                  << "Begin by entering 'run' after setting breakpoints.\n";
     processInputs();
   };
-  
+
   void endTrace() {
     llvm::outs() << "Templight debugging session has ended. Goodbye!\n";
   };
-  
-  InteractiveAgent(const Sema &aTheSema) : TheSema(aTheSema), ignoreAll(false), 
+
+  InteractiveAgent(const Sema &aTheSema) : TheSema(aTheSema), ignoreAll(false),
     ignoreUntilLastEnds(false), ignoreUntilBreakpoint(false), verboseMode(false) {
     CurrentSkippedEntry.IsTemplateBegin = false;
   };
-  
+
   ~InteractiveAgent() { };
-  
+
   const Sema &TheSema;
-  
+
   std::vector<TemplateDebuggerEntry> EntriesStack;
   TemplateDebuggerEntry LastBeginEntry;
-  
+
   std::vector< std::pair<std::string,llvm::Regex> > Breakpoints;
-  
+
   std::string LastUserCommand;
-  
+
   TemplateDebuggerEntry CurrentSkippedEntry;
   std::unique_ptr<llvm::Regex> CoRegex;
   std::unique_ptr<llvm::Regex> IdRegex;
-  
+
   unsigned ignoreAll : 1;
   unsigned ignoreUntilLastEnds : 1;
   unsigned ignoreUntilBreakpoint : 1;
@@ -1034,34 +1034,34 @@ void TemplightDebugger::finalizeImpl(const Sema &) {
   Interactor->endTrace();
 }
 
-void TemplightDebugger::atTemplateBeginImpl(const Sema &TheSema, 
+void TemplightDebugger::atTemplateBeginImpl(const Sema &TheSema,
                           const ActiveTemplateInstantiation& Inst) {
-  if ( IgnoreSystemFlag && !Inst.PointOfInstantiation.isInvalid() && 
+  if ( IgnoreSystemFlag && !Inst.PointOfInstantiation.isInvalid() &&
        TheSema.getSourceManager()
          .isInSystemHeader(Inst.PointOfInstantiation) )
     return;
-  
+
   TemplateDebuggerEntry Entry(
     true, (MemoryFlag ? llvm::sys::Process::GetMallocUsage() : 0), TheSema, Inst);
-  
+
   Interactor->printRawEntry(Entry);
 }
 
-void TemplightDebugger::atTemplateEndImpl(const Sema &TheSema, 
+void TemplightDebugger::atTemplateEndImpl(const Sema &TheSema,
                           const ActiveTemplateInstantiation& Inst) {
-  if ( IgnoreSystemFlag && !Inst.PointOfInstantiation.isInvalid() && 
+  if ( IgnoreSystemFlag && !Inst.PointOfInstantiation.isInvalid() &&
        TheSema.getSourceManager()
          .isInSystemHeader(Inst.PointOfInstantiation) )
     return;
-  
+
   TemplateDebuggerEntry Entry(
     false, (MemoryFlag ? llvm::sys::Process::GetMallocUsage() : 0), TheSema, Inst);
-  
+
   Interactor->printRawEntry(Entry);
 }
 
 
-TemplightDebugger::TemplightDebugger(const Sema &TheSema, 
+TemplightDebugger::TemplightDebugger(const Sema &TheSema,
                                      bool Memory, bool IgnoreSystem) :
                                      MemoryFlag(Memory),
                                      IgnoreSystemFlag(IgnoreSystem) {
@@ -1069,7 +1069,7 @@ TemplightDebugger::TemplightDebugger(const Sema &TheSema,
 }
 
 
-TemplightDebugger::~TemplightDebugger() { 
+TemplightDebugger::~TemplightDebugger() {
   // must be defined here due to TracePrinter being incomplete in header.
 }
 
@@ -1079,9 +1079,9 @@ void TemplightDebugger::readBlacklists(const std::string& BLFilename) {
     Interactor->IdRegex.reset();
     return;
   }
-  
+
   std::string CoPattern, IdPattern;
-  
+
   llvm::ErrorOr< std::unique_ptr<llvm::MemoryBuffer> >
     file_epbuf = llvm::MemoryBuffer::getFile(llvm::Twine(BLFilename));
   if(!file_epbuf || (!file_epbuf.get())) {
@@ -1090,14 +1090,14 @@ void TemplightDebugger::readBlacklists(const std::string& BLFilename) {
     Interactor->IdRegex.reset();
     return;
   }
-  
+
   llvm::Regex findCo("^context ");
   llvm::Regex findId("^identifier ");
-  
+
   const char* it      = file_epbuf.get()->getBufferStart();
   const char* it_mark = file_epbuf.get()->getBufferStart();
   const char* it_end  = file_epbuf.get()->getBufferEnd();
-  
+
   while( it_mark != it_end ) {
     it_mark = std::find(it, it_end, '\n');
     if(*(it_mark-1) == '\r')
@@ -1116,12 +1116,12 @@ void TemplightDebugger::readBlacklists(const std::string& BLFilename) {
       IdPattern.append(&(*(it+11)), it_mark - it - 11);
       IdPattern += ')';
     }
-    while( (it_mark != it_end) && 
+    while( (it_mark != it_end) &&
            ((*it_mark == '\n') || (*it_mark == '\r')) )
       ++it_mark;
     it = it_mark;
   }
-  
+
   Interactor->CoRegex.reset(new llvm::Regex(CoPattern));
   Interactor->IdRegex.reset(new llvm::Regex(IdPattern));
   return;
@@ -1129,4 +1129,3 @@ void TemplightDebugger::readBlacklists(const std::string& BLFilename) {
 
 
 } // namespace clang
-

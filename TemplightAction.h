@@ -28,7 +28,7 @@ protected:
 public:
   /// Construct a TemplightAction from an existing action, taking
   /// ownership of it.
-  TemplightAction(FrontendAction *WrappedAction);
+  TemplightAction(std::unique_ptr<FrontendAction> WrappedAction);
 
   bool usesPreprocessorOnly() const override;
   TranslationUnitKind getTranslationUnitKind() override;
@@ -36,12 +36,12 @@ public:
   bool hasASTFileSupport() const override;
   bool hasIRSupport() const override;
   bool hasCodeCompletionSupport() const override;
-  
+
   static std::string CreateOutputFilename(
     CompilerInstance *CI,
-    const std::string& OptOutputName, 
+    const std::string& OptOutputName,
     bool OptInstProfiler,
-    bool OptOutputToStdOut, 
+    bool OptOutputToStdOut,
     bool OptMemoryProfile);
 
   unsigned InstProfiler : 1;
